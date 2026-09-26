@@ -83,6 +83,15 @@
                 left: 0;
                 top: 0;
                 width: 100%;
+                display: flex !important;
+                justify-content: center;
+                align-items: center;
+                flex-direction: column;
+                background: white !important;
+                border: none !important;
+            }
+            #printable-barcode-area button {
+                display: none !important;
             }
         }
     </style>
@@ -136,7 +145,6 @@
                         <span id="active-session-badge" class="hidden bg-emerald-100 text-emerald-700 px-3 py-1.5 rounded-full text-xs font-bold border border-emerald-200">
                             حصة نشطة الآن
                         </span>
-                        <!-- زر إنهاء الحصة المضاف -->
                         <button id="end-session-btn" onclick="finishSession()" class="hidden bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold px-4 py-2 rounded-xl shadow-md flex items-center gap-2 transition-all">
                             <i class="fa-solid fa-flag-checkered text-amber-400"></i> إنهاء وترحيل الحصة
                         </button>
@@ -298,13 +306,13 @@
             <div class="glass-card p-8 rounded-3xl bg-white border border-slate-100 shadow-xl text-center space-y-6">
                 <div>
                     <h2 class="text-2xl font-black text-slate-800 mb-2">مولد الباركود الذكي</h2>
-                    <p class="text-xs text-slate-500">قم بتوليد كود مكون من 5 أرقام أو اكتب كود يدوي لطباعته فوراً.</p>
+                    <p class="text-xs text-slate-500">قم بتوليد كود فريد مكون من 5 أرقام مع الفحص التلقائي لعدم التكرار.</p>
                 </div>
 
                 <div class="flex gap-2 max-w-md mx-auto">
                     <input type="text" id="custom-gen-barcode" maxlength="5" placeholder="أدخل 5 أرقام..." dir="ltr" class="flex-grow bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-center font-mono font-bold text-lg tracking-widest text-brand-700 outline-none focus:ring-2 focus:ring-brand-500">
-                    <button onclick="generateRandomBarcodeForGen()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center gap-2">
-                        <i class="fa-solid fa-shuffle"></i> عشوائي
+                    <button id="gen-random-btn" onclick="generateUniqueRandomBarcode()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-3 rounded-2xl font-bold text-xs transition-all flex items-center gap-2">
+                        <i class="fa-solid fa-shuffle"></i> عشوائي غير مكرر
                     </button>
                 </div>
 
@@ -316,7 +324,6 @@
                     <div class="flex justify-center bg-white p-4 rounded-xl shadow-sm inline-block">
                         <svg id="generator-barcode-svg"></svg>
                     </div>
-                    <p id="generator-num-display" class="text-xl font-black text-brand-700 tracking-widest font-mono" dir="ltr"></p>
                     <button onclick="window.print()" class="text-xs bg-slate-800 text-white px-5 py-2.5 rounded-xl font-bold hover:bg-slate-900 transition-all">
                         <i class="fa-solid fa-print"></i> طباعة ملصق الباركود
                     </button>
@@ -367,7 +374,6 @@
                 <button onclick="closeModal()" class="text-white/80 hover:text-white text-xl"><i class="fa-solid fa-xmark"></i></button>
             </div>
             
-            <!-- Student Search Field inside Modal -->
             <div class="p-4 bg-slate-50 border-b">
                 <div class="relative">
                     <i class="fa-solid fa-magnifying-glass absolute right-4 top-3.5 text-slate-400"></i>
@@ -419,7 +425,18 @@
             }
         }
 
-        // Add Student with Student Phone & Parent Phone
+        // فحص وجود الباركود بقاعدة البيانات للتحقق من التكرار
+        async function checkBarcodeExists(barcode) {
+            const { data, error } = await _supabase
+                .from('students')
+                .select('barcode')
+                .eq('barcode', barcode)
+                .maybeSingle();
+            
+            return !!data;
+        }
+
+        // Add Student with Student Phone & Parent Phone + Check Duplicate Barcode
         document.getElementById('add-student-form').addEventListener('submit', async (e) => {
             e.preventDefault();
             const name = document.getElementById('new-student-name').value.trim();
@@ -433,13 +450,20 @@
                 return;
             }
 
+            // فحص مسبق هل الباركود موجود بالفعل
+            const exists = await checkBarcodeExists(barcode);
+            if (exists) {
+                alert('عذراً، هذا الباركود ( ' + barcode + ' ) مسجل بالفعل لطالب آخر بالسيستم. يرجى اختيار باركود مختلف!');
+                return;
+            }
+
             const { data, error } = await _supabase
                 .from('students')
                 .insert([{ barcode, name, grade, student_phone, parent_phone }]);
 
             if (error) {
                 if(error.code === '23505') {
-                    alert('هذا الباركود مستخدم بالفعل لطالب آخر، يرجى كتابة كود آخر.');
+                    alert('هذا الباركود مستخدم بالفعل لطالب آخر!');
                 } else {
                     alert('حدث خطأ أثناء إضافة الطالب: ' + error.message);
                 }
@@ -449,33 +473,79 @@
             }
         });
 
-        // Barcode Generator Tab Logic
-        function generateRandomBarcodeForGen() {
-            const randomCode = Math.floor(10000 + Math.random() * 90000).toString();
-            document.getElementById('custom-gen-barcode').value = randomCode;
+        // توليد باركود عشوائي غير مكرر على الإطلاق
+        async function generateUniqueRandomBarcode() {
+            const btn = document.getElementById('gen-random-btn');
+            btn.innerText = 'جاري التوليد والتحقق...';
+            btn.disabled = true;
+
+            let isUnique = false;
+            let randomCode = '';
+            let attempts = 0;
+
+            while (!isUnique && attempts < 20) {
+                attempts++;
+                randomCode = Math.floor(10000 + Math.random() * 90000).toString();
+                const exists = await checkBarcodeExists(randomCode);
+                if (!exists) {
+                    isUnique = true;
+                }
+            }
+
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fa-solid fa-shuffle"></i> عشوائي غير مكرر';
+
+            if (isUnique) {
+                document.getElementById('custom-gen-barcode').value = randomCode;
+            } else {
+                alert('تعذر توليد رقم فريد الآن، برجاء المحاولة مرة أخرى.');
+            }
         }
 
-        function renderBarcodeInGenerator() {
+        // إظهار الباركود والطباعة مع إظهار الرقم تحته مباشرة
+        async function renderBarcodeInGenerator() {
             const val = document.getElementById('custom-gen-barcode').value.trim();
             if (val.length !== 5 || isNaN(val)) {
                 alert('يرجى كتابة باركود يتكون من 5 أرقام أولاً!');
                 return;
             }
 
+            const exists = await checkBarcodeExists(val);
+            if (exists) {
+                alert('تنبيه: هذا الباركود (' + val + ') مسجل بالفعل لطالب موجود بالسيستم!');
+            }
+
             document.getElementById('printable-barcode-area').classList.remove('hidden');
-            document.getElementById('generator-num-display').innerText = val;
             
+            // ضبط JsBarcode لطباعة الرقم أسفل خطوط الباركود بشكل مباشر
             JsBarcode("#generator-barcode-svg", val, {
                 format: "CODE128",
-                width: 2,
-                height: 60,
-                displayValue: false
+                width: 2.2,
+                height: 75,
+                displayValue: true, // إظهار الرقم أسفل الباركود
+                fontOptions: "bold",
+                font: "Tajawal",
+                fontSize: 18,
+                textMargin: 6
             });
         }
 
-        // Create Session & Attendance Setup
+        // Create Session & Attendance Setup עם رسالة التأكيد
         document.getElementById('create-session-form').addEventListener('submit', async (e) => {
             e.preventDefault();
+
+            if (currentSessionId) {
+                const confirmStart = confirm('توجد حصة مفتوحة بالفعل الآن.\nهل تريد إنهاء الحصة الحالية وترحيلها للأرشيف وبدء حصة جديدة؟');
+                if (!confirmStart) {
+                    return;
+                }
+            } else {
+                const confirmNew = confirm('هل أنت متأكد من بدء إنشاء هذه الحصة الجديدة وتجهيز جدول الحضور؟');
+                if (!confirmNew) {
+                    return;
+                }
+            }
+
             const grade = document.getElementById('session-grade').value;
             const teacher_name = document.getElementById('teacher-name').value;
             const session_date = document.getElementById('session-date').value;
@@ -590,9 +660,8 @@
             document.getElementById('absent-count').innerText = absentCount;
         }
 
-        // دالة إنهاء الحصة وتفريغها للذهاب إلى الأرشيف
         function finishSession() {
-            if (confirm('هل أنت تأكد من إنهاء الحصة الحالية؟\nسيتم حرق الجلسة النشطة وتحويل الحصة بالكامل للأرشيف الحصص السابقة.')) {
+            if (confirm('هل أنت تأكد من إنهاء الحصة الحالية؟\nسيتم حفظ الجلسة وتحويل الحصة بالكامل لأرشيف الحصص السابقة.')) {
                 if (html5QrCode && html5QrCode.isScanning) {
                     html5QrCode.stop();
                 }
@@ -600,7 +669,6 @@
                 currentSessionId = null;
                 localStorage.removeItem('active_session_id');
 
-                // إخفاء العناوين والجداول وإعادة تعيين الواجهة
                 document.getElementById('active-session-badge').classList.add('hidden');
                 document.getElementById('end-session-btn').classList.add('hidden');
                 document.getElementById('scanner-area').classList.add('hidden');
@@ -608,8 +676,6 @@
                 document.getElementById('create-session-form').reset();
 
                 alert('تم إغلاق الحصة بنجاح وحفظها بالأرشيف!');
-                
-                // الانتقال لتبويب أرشيف الحصص السابقة
                 switchTab('history-tab');
             }
         }
@@ -729,7 +795,6 @@
             });
         }
 
-        // View Session Report with Internal Student Search & Phone Numbers
         async function viewSessionReport(sessionId) {
             const { data: attendance } = await _supabase
                 .from('attendance')
