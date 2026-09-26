@@ -126,14 +126,21 @@
         <!-- TAB 1: SESSION & ATTENDANCE -->
         <section id="session-tab" class="tab-content space-y-6">
             <div class="glass-card p-6 rounded-3xl bg-white border border-slate-100 shadow-xl shadow-red-900/5">
-                <div class="flex items-center justify-between mb-4 border-b pb-3 border-slate-100">
+                <div class="flex flex-col md:flex-row items-start md:items-center justify-between mb-4 border-b pb-3 border-slate-100 gap-3">
                     <h2 class="text-xl font-extrabold text-slate-800 flex items-center gap-2">
                         <span class="w-3 h-3 rounded-full bg-brand-600 animate-pulse"></span>
                         إدارة الحصة الحالية
                     </h2>
-                    <span id="active-session-badge" class="hidden bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full text-xs font-bold border border-emerald-200">
-                        حصة نشطة الآن
-                    </span>
+                    
+                    <div class="flex items-center gap-3">
+                        <span id="active-session-badge" class="hidden bg-emerald-100 text-emerald-700 px-3 py-1.5 rounded-full text-xs font-bold border border-emerald-200">
+                            حصة نشطة الآن
+                        </span>
+                        <!-- زر إنهاء الحصة المضاف -->
+                        <button id="end-session-btn" onclick="finishSession()" class="hidden bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold px-4 py-2 rounded-xl shadow-md flex items-center gap-2 transition-all">
+                            <i class="fa-solid fa-flag-checkered text-amber-400"></i> إنهاء وترحيل الحصة
+                        </button>
+                    </div>
                 </div>
 
                 <form id="create-session-form" class="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
@@ -154,7 +161,7 @@
                         <label class="block text-xs font-bold text-slate-600 mb-2">تاريخ الحصة</label>
                         <input type="date" id="session-date" required class="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm focus:ring-2 focus:ring-brand-500 outline-none">
                     </div>
-                    <button type="submit" class="bg-gradient-to-r from-brand-600 to-red-500 hover:from-brand-700 hover:to-red-600 text-white font-bold py-3 px-6 rounded-2xl shadow-lg shadow-brand-500/25 transition-all transform active:scale-95 flex items-center justify-center gap-2">
+                    <button type="submit" id="start-session-submit-btn" class="bg-gradient-to-r from-brand-600 to-red-500 hover:from-brand-700 hover:to-red-600 text-white font-bold py-3 px-6 rounded-2xl shadow-lg shadow-brand-500/25 transition-all transform active:scale-95 flex items-center justify-center gap-2">
                         <i class="fa-solid fa-play"></i> بدء / تجهيز الجدول
                     </button>
                 </form>
@@ -510,6 +517,7 @@
             if (!currentSessionId) return;
 
             document.getElementById('active-session-badge').classList.remove('hidden');
+            document.getElementById('end-session-btn').classList.remove('hidden');
             document.getElementById('scanner-area').classList.remove('hidden');
             document.getElementById('tables-container').classList.remove('hidden');
 
@@ -580,6 +588,30 @@
 
             document.getElementById('present-count').innerText = presentCount;
             document.getElementById('absent-count').innerText = absentCount;
+        }
+
+        // دالة إنهاء الحصة وتفريغها للذهاب إلى الأرشيف
+        function finishSession() {
+            if (confirm('هل أنت تأكد من إنهاء الحصة الحالية؟\nسيتم حرق الجلسة النشطة وتحويل الحصة بالكامل للأرشيف الحصص السابقة.')) {
+                if (html5QrCode && html5QrCode.isScanning) {
+                    html5QrCode.stop();
+                }
+
+                currentSessionId = null;
+                localStorage.removeItem('active_session_id');
+
+                // إخفاء العناوين والجداول وإعادة تعيين الواجهة
+                document.getElementById('active-session-badge').classList.add('hidden');
+                document.getElementById('end-session-btn').classList.add('hidden');
+                document.getElementById('scanner-area').classList.add('hidden');
+                document.getElementById('tables-container').classList.add('hidden');
+                document.getElementById('create-session-form').reset();
+
+                alert('تم إغلاق الحصة بنجاح وحفظها بالأرشيف!');
+                
+                // الانتقال لتبويب أرشيف الحصص السابقة
+                switchTab('history-tab');
+            }
         }
 
         function setupFastBarcodeScanner() {
